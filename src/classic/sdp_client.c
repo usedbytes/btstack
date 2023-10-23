@@ -193,6 +193,27 @@ static void sdp_parser_process_byte(uint8_t eventByte){
             break;
 
         case GET_RECORD_LENGTH:
+            {
+                // HACK: Deal with DS4 clones which return a malformed response.
+                // Rather than the response being a list of records (lists of
+                // attributes), it's just a single record (list of attributes).
+                // We can detect this by making sure that the record header
+                // does claim to be a DES, if not, then it's malformed and we
+                // assume that the list header was in-fact the record header.
+                // Hopefully the recursion is safe here!
+                de_type_t de_type = de_get_element_type(&eventByte);
+                if (de_type != DE_DES && des_parser_de_header_state.in_state_GET_DE_HEADER_LENGTH) {
+                    log_error("malformed attribute list - assuming single record");
+                    sdp_parser_record_offset = des_parser_de_header_state.de_offset;
+                    sdp_parser_record_size = sdp_parser_list_size;
+                    sdp_parser_state = GET_ATTRIBUTE_ID_HEADER_LENGTH;
+                    // Recurse because we still want to process this byte, just
+                    // as an attribute ID header rather than a list header
+                    sdp_parser_process_byte(eventByte);
+                    break;
+                }
+            }
+
             // check size
             if (!de_state_size(eventByte, &des_parser_de_header_state)) break;
             // log_info("parser: Record payload is %d bytes.", de_header_state.de_size);
